@@ -1,0 +1,45 @@
+# --- Environment / secrets -------------------------------------------------
+.env
+*.env
+!.env.example
+
+# --- Maven -----------------------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+dependency-reduced-pom.xml
+pom.xml.versionsBackup
+
+# --- IDEs ------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+nbproject/private/
+
+# --- Build output ----------------------------------------------------------
+build/
+out/
+bin/
+*.jar
+*.war
+*.class
+!**/src/main/**/*.jar
+
+# --- Logs & temp -----------------------------------------------------------
+*.log
+logs/
+*.pid
+*.tmp
+hs_err_pid*
+replay_pid*
+
+# --- OS --------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

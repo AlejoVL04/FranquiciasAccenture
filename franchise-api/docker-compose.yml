@@ -1,0 +1,64 @@
+services:
+
+  mysql:
+    image: mysql:8.4
+    container_name: franchise-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_NAME:-franchise_db}
+      MYSQL_USER: ${DB_USERNAME:-franchise_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      # The app must not start before MySQL can actually accept queries, or
+      # Flyway fails on the very first connection attempt.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - franchise-net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: franchise-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-franchise_db}
+      DB_USERNAME: ${DB_USERNAME:-franchise_user}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      SERVER_PORT: 8080
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - franchise-net
+
+volumes:
+  mysql-data:
+    driver: local
+
+networks:
+  franchise-net:
+    driver: bridge

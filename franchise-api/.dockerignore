@@ -1,0 +1,8 @@
+.git
+.gitignore
+.env
+target/
+*.md
+Franchise API.postman_collection.json
+.idea/
+*.iml
