@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateFranchiseRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.FranchiseResponse;
 import com.example.franchiseapi.dto.response.TopStockProductResponse;
 
@@ -12,6 +13,12 @@ public interface FranchiseService {
      * @throws com.example.franchiseapi.exception.BusinessException 409, name already taken
      */
     FranchiseResponse create(CreateFranchiseRequest request);
+
+    /**
+     * @throws com.example.franchiseapi.exception.ResourceNotFoundException 404, unknown franchise
+     * @throws com.example.franchiseapi.exception.BusinessException         409, name already taken
+     */
+    FranchiseResponse updateName(Long franchiseId, UpdateNameRequest request);
 
     List<FranchiseResponse> findAll();
 

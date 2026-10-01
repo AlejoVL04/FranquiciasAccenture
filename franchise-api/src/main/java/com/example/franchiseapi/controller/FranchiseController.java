@@ -2,6 +2,7 @@ package com.example.franchiseapi.controller;
 
 import com.example.franchiseapi.dto.request.CreateBranchRequest;
 import com.example.franchiseapi.dto.request.CreateFranchiseRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.BranchResponse;
 import com.example.franchiseapi.dto.response.FranchiseResponse;
 import com.example.franchiseapi.dto.response.TopStockProductResponse;
@@ -20,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,7 +36,7 @@ import java.util.List;
 @RestController
 @RequestMapping(value = "/api/v1/franchises", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
-@Tag(name = "Franchises", description = "Franchise registration, lookup and the highest-stock report")
+@Tag(name = "Franchises", description = "Franchise registration, renaming, lookup and the highest-stock report")
 public class FranchiseController {
 
     private final FranchiseService franchiseService;
@@ -76,6 +78,27 @@ public class FranchiseController {
             @Parameter(description = "Franchise identifier", example = "1")
             @PathVariable Long franchiseId) {
         return franchiseService.findById(franchiseId);
+    }
+
+    @Operation(
+            summary = "Rename a franchise",
+            description = "The new name must be unique across all franchises. Renaming a franchise to "
+                    + "its current name, or to a different capitalisation of it, is accepted."
+    )
+    @ApiResponse(responseCode = "200", description = "Franchise renamed",
+            content = @Content(schema = @Schema(implementation = FranchiseResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Name missing, blank or longer than 100 characters",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "Franchise not found",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "Another franchise already uses that name",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PatchMapping(value = "/{franchiseId}/name", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public FranchiseResponse updateName(
+            @Parameter(description = "Franchise identifier", example = "1")
+            @PathVariable Long franchiseId,
+            @Valid @RequestBody UpdateNameRequest request) {
+        return franchiseService.updateName(franchiseId, request);
     }
 
     @Operation(

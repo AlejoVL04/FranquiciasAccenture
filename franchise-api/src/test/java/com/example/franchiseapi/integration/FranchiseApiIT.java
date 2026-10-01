@@ -3,6 +3,7 @@ package com.example.franchiseapi.integration;
 import com.example.franchiseapi.dto.request.CreateBranchRequest;
 import com.example.franchiseapi.dto.request.CreateFranchiseRequest;
 import com.example.franchiseapi.dto.request.CreateProductRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.request.UpdateStockRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.DisplayName;
@@ -294,6 +295,147 @@ class FranchiseApiIT extends AbstractIntegrationTest {
                 .get()
                 .extracting(product -> product.getStock())
                 .isEqualTo(25);
+    }
+
+    @Test
+    @DisplayName("renaming a franchise returns 200 and persists the new name")
+    void renamesFranchise() throws Exception {
+        long franchiseId = createFranchise("Franquicia Medellin");
+
+        mockMvc.perform(patch("/api/v1/franchises/{id}/name", franchiseId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Franquicia Antioquia"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) franchiseId))
+                .andExpect(jsonPath("$.name").value("Franquicia Antioquia"));
+
+        assertThat(franchiseRepository.findById(franchiseId))
+                .get()
+                .extracting(franchise -> franchise.getName())
+                .isEqualTo("Franquicia Antioquia");
+    }
+
+    @Test
+    @DisplayName("a franchise may be renamed to a different capitalisation of its own name")
+    void renamesFranchiseToOwnNameInOtherCase() throws Exception {
+        long franchiseId = createFranchise("Franquicia Medellin");
+
+        mockMvc.perform(patch("/api/v1/franchises/{id}/name", franchiseId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("FRANQUICIA MEDELLIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("FRANQUICIA MEDELLIN"));
+    }
+
+    @Test
+    @DisplayName("renaming a franchise to the name of another one returns 409")
+    void rejectsFranchiseRenameToTakenName() throws Exception {
+        createFranchise("Franquicia Bogota");
+        long franchiseId = createFranchise("Franquicia Medellin");
+
+        mockMvc.perform(patch("/api/v1/franchises/{id}/name", franchiseId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("franquicia bogota"))))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("renaming an unknown franchise returns 404 and a blank name returns 400")
+    void rejectsInvalidFranchiseRename() throws Exception {
+        mockMvc.perform(patch("/api/v1/franchises/{id}/name", 999)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Otra"))))
+                .andExpect(status().isNotFound());
+
+        long franchiseId = createFranchise("Franquicia Medellin");
+        mockMvc.perform(patch("/api/v1/franchises/{id}/name", franchiseId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.validationErrors.name").value("Name is required"));
+    }
+
+    @Test
+    @DisplayName("renaming a branch returns 200; a name taken in the same franchise returns 409")
+    void renamesBranch() throws Exception {
+        long franchiseId = createFranchise("Franquicia Medellin");
+        long branchId = createBranch(franchiseId, "Sucursal El Poblado");
+        createBranch(franchiseId, "Sucursal Laureles");
+
+        mockMvc.perform(patch("/api/v1/branches/{id}/name", branchId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Sucursal Envigado"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) branchId))
+                .andExpect(jsonPath("$.name").value("Sucursal Envigado"))
+                .andExpect(jsonPath("$.franchiseId").value((int) franchiseId));
+
+        mockMvc.perform(patch("/api/v1/branches/{id}/name", branchId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Sucursal Laureles"))))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(patch("/api/v1/branches/{id}/name", 999)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Otra"))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("a branch may take a name used in a different franchise")
+    void renamesBranchToNameUsedInAnotherFranchise() throws Exception {
+        createBranch(createFranchise("Franquicia Bogota"), "Sucursal Centro");
+        long branchId = createBranch(createFranchise("Franquicia Medellin"), "Sucursal El Poblado");
+
+        mockMvc.perform(patch("/api/v1/branches/{id}/name", branchId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Sucursal Centro"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("renaming a product returns 200 and keeps its stock; a taken name returns 409")
+    void renamesProduct() throws Exception {
+        long branchId = createBranch(createFranchise("Franquicia Medellin"), "Sucursal El Poblado");
+        long productId = createProduct(branchId, "Laptop Lenovo", 25);
+        createProduct(branchId, "Mouse Logitech", 10);
+
+        mockMvc.perform(patch("/api/v1/branches/{branchId}/products/{productId}/name", branchId, productId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Laptop Lenovo X1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) productId))
+                .andExpect(jsonPath("$.name").value("Laptop Lenovo X1"))
+                .andExpect(jsonPath("$.stock").value(25));
+
+        mockMvc.perform(patch("/api/v1/branches/{branchId}/products/{productId}/name", branchId, productId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Mouse Logitech"))))
+                .andExpect(status().isConflict());
+
+        assertThat(productRepository.findById(productId))
+                .get()
+                .extracting(product -> product.getName())
+                .isEqualTo("Laptop Lenovo X1");
+    }
+
+    @Test
+    @DisplayName("renaming a product through a branch that does not own it returns 404")
+    void rejectsProductRenameThroughWrongBranch() throws Exception {
+        long franchiseId = createFranchise("Franquicia Medellin");
+        long ownerBranch = createBranch(franchiseId, "Sucursal El Poblado");
+        long otherBranch = createBranch(franchiseId, "Sucursal Laureles");
+        long productId = createProduct(ownerBranch, "Laptop Lenovo", 25);
+
+        mockMvc.perform(patch("/api/v1/branches/{branchId}/products/{productId}/name", otherBranch, productId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new UpdateNameRequest("Otro"))))
+                .andExpect(status().isNotFound());
+
+        assertThat(productRepository.findById(productId))
+                .get()
+                .extracting(product -> product.getName())
+                .isEqualTo("Laptop Lenovo");
     }
 
     @Test

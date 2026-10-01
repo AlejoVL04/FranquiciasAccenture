@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateProductRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.request.UpdateStockRequest;
 import com.example.franchiseapi.dto.response.ProductResponse;
 import com.example.franchiseapi.entity.Branch;
@@ -305,6 +306,59 @@ class ProductServiceImplTest {
             assertThatThrownBy(() -> productService.findById(99L))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Product with id 99 not found");
+        }
+    }
+
+    @Nested
+    @DisplayName("updateName")
+    class UpdateName {
+
+        @Test
+        @DisplayName("renames the product and keeps its stock")
+        void renamesProduct() {
+            Product product = product(3L, "Laptop Lenovo", 25);
+            when(productRepository.findByIdAndBranchId(3L, 1L)).thenReturn(Optional.of(product));
+            when(productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(1L, "Laptop Lenovo X1", 3L))
+                    .thenReturn(false);
+            when(productRepository.saveAndFlush(product)).thenReturn(product);
+
+            ProductResponse response = productService.updateName(
+                    1L, 3L, new UpdateNameRequest(" Laptop Lenovo X1 "));
+
+            assertThat(response.id()).isEqualTo(3L);
+            assertThat(response.name()).isEqualTo("Laptop Lenovo X1");
+            assertThat(response.stock()).isEqualTo(25);
+        }
+
+        @Test
+        @DisplayName("raises 404 when the product does not belong to the branch")
+        void raisesNotFoundThroughWrongBranch() {
+            when(productRepository.findByIdAndBranchId(3L, 2L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productService.updateName(2L, 3L, new UpdateNameRequest("Otro")))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessage("Product with id 3 not found in branch 2");
+
+            verify(productRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("rejects a name used by another product of the branch with 409 CONFLICT")
+        void rejectsNameOfSiblingProduct() {
+            Product product = product(3L, "Laptop Lenovo", 25);
+            when(productRepository.findByIdAndBranchId(3L, 1L)).thenReturn(Optional.of(product));
+            when(productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(1L, "Mouse Logitech", 3L))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> productService.updateName(
+                    1L, 3L, new UpdateNameRequest("Mouse Logitech")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("already exists in branch 1")
+                    .extracting(ex -> ((BusinessException) ex).getStatus())
+                    .isEqualTo(HttpStatus.CONFLICT);
+
+            assertThat(product.getName()).isEqualTo("Laptop Lenovo");
+            verify(productRepository, never()).saveAndFlush(any());
         }
     }
 

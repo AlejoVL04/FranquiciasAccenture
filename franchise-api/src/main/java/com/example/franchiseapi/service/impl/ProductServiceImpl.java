@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service.impl;
 
 import com.example.franchiseapi.dto.request.CreateProductRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.request.UpdateStockRequest;
 import com.example.franchiseapi.dto.response.ProductResponse;
 import com.example.franchiseapi.entity.Branch;
@@ -78,6 +79,27 @@ public class ProductServiceImpl implements ProductService {
 
         log.info("Stock updated: productId={}, branchId={}, {} -> {}",
                 productId, branchId, previousStock, updated.getStock());
+        return ProductMapper.toResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public ProductResponse updateName(Long branchId, Long productId, UpdateNameRequest request) {
+        Product product = requireProductInBranch(branchId, productId);
+
+        String name = request.name().trim();
+        if (productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(branchId, name, productId)) {
+            throw BusinessException.conflict(
+                    "A product named '%s' already exists in branch %d".formatted(name, branchId));
+        }
+
+        String previousName = product.getName();
+        product.setName(name);
+        // Flushed so the @UpdateTimestamp is written before the response is mapped.
+        Product updated = productRepository.saveAndFlush(product);
+
+        log.info("Product renamed: id={}, branchId={}, '{}' -> '{}'",
+                productId, branchId, previousName, updated.getName());
         return ProductMapper.toResponse(updated);
     }
 

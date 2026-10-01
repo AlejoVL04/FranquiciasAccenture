@@ -12,5 +12,8 @@ public interface FranchiseRepository extends JpaRepository<Franchise, Long> {
     /** Enforces the "no duplicated franchise name" rule before inserting. */
     boolean existsByNameIgnoreCase(String name);
 
+    /** Same rule on rename: the franchise being renamed does not collide with itself. */
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
+
     List<Franchise> findAllByOrderByIdAsc();
 }

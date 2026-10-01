@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateBranchRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.BranchResponse;
 
 import java.util.List;
@@ -12,6 +13,12 @@ public interface BranchService {
      * @throws com.example.franchiseapi.exception.BusinessException         409, name already used in this franchise
      */
     BranchResponse create(Long franchiseId, CreateBranchRequest request);
+
+    /**
+     * @throws com.example.franchiseapi.exception.ResourceNotFoundException 404, unknown branch
+     * @throws com.example.franchiseapi.exception.BusinessException         409, name already used in this franchise
+     */
+    BranchResponse updateName(Long branchId, UpdateNameRequest request);
 
     /**
      * @throws com.example.franchiseapi.exception.ResourceNotFoundException 404, unknown franchise

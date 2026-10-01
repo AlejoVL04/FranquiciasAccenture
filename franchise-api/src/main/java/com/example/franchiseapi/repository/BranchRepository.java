@@ -15,5 +15,8 @@ public interface BranchRepository extends JpaRepository<Branch, Long> {
      */
     boolean existsByFranchiseIdAndNameIgnoreCase(Long franchiseId, String name);
 
+    /** Same rule on rename: the branch being renamed does not collide with itself. */
+    boolean existsByFranchiseIdAndNameIgnoreCaseAndIdNot(Long franchiseId, String name, Long id);
+
     List<Branch> findByFranchiseIdOrderByIdAsc(Long franchiseId);
 }

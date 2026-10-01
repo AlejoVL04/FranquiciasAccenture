@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service.impl;
 
 import com.example.franchiseapi.dto.request.CreateFranchiseRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.FranchiseResponse;
 import com.example.franchiseapi.dto.response.TopStockProductResponse;
 import com.example.franchiseapi.entity.Franchise;
@@ -42,6 +43,27 @@ public class FranchiseServiceImpl implements FranchiseService {
         Franchise saved = franchiseRepository.save(Franchise.builder().name(name).build());
         log.info("Franchise created: id={}, name={}", saved.getId(), saved.getName());
         return FranchiseMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public FranchiseResponse updateName(Long franchiseId, UpdateNameRequest request) {
+        Franchise franchise = franchiseRepository.findById(franchiseId)
+                .orElseThrow(() -> ResourceNotFoundException.of(FRANCHISE, franchiseId));
+
+        String name = request.name().trim();
+        if (franchiseRepository.existsByNameIgnoreCaseAndIdNot(name, franchiseId)) {
+            throw BusinessException.conflict(
+                    "A franchise named '%s' already exists".formatted(name));
+        }
+
+        String previousName = franchise.getName();
+        franchise.setName(name);
+        // Flushed so the @UpdateTimestamp is written before the response is mapped.
+        Franchise updated = franchiseRepository.saveAndFlush(franchise);
+
+        log.info("Franchise renamed: id={}, '{}' -> '{}'", franchiseId, previousName, updated.getName());
+        return FranchiseMapper.toResponse(updated);
     }
 
     @Override

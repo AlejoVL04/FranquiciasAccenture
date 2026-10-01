@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateFranchiseRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.FranchiseResponse;
 import com.example.franchiseapi.dto.response.TopStockProductResponse;
 import com.example.franchiseapi.entity.Franchise;
@@ -274,6 +275,61 @@ class FranchiseServiceImplTest {
                     .hasMessage("Franchise with id 99 not found");
 
             verify(productRepository, never()).findTopStockProductPerBranch(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("updateName")
+    class UpdateName {
+
+        @Test
+        @DisplayName("renames the franchise, trimming surrounding whitespace")
+        void renamesFranchise() {
+            Franchise franchise = withIdAndTimestamps(
+                    Franchise.builder().name("Franquicia Medellin").build(), 1L);
+            when(franchiseRepository.findById(1L)).thenReturn(Optional.of(franchise));
+            when(franchiseRepository.existsByNameIgnoreCaseAndIdNot("Franquicia Antioquia", 1L))
+                    .thenReturn(false);
+            when(franchiseRepository.saveAndFlush(franchise)).thenReturn(franchise);
+
+            FranchiseResponse response = franchiseService.updateName(
+                    1L, new UpdateNameRequest("  Franquicia Antioquia  "));
+
+            assertThat(response.id()).isEqualTo(1L);
+            assertThat(response.name()).isEqualTo("Franquicia Antioquia");
+            assertThat(franchise.getName()).isEqualTo("Franquicia Antioquia");
+        }
+
+        @Test
+        @DisplayName("raises 404 for an unknown franchise and never persists")
+        void raisesNotFoundForUnknownFranchise() {
+            when(franchiseRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> franchiseService.updateName(99L, new UpdateNameRequest("Otra")))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessage("Franchise with id 99 not found");
+
+            verify(franchiseRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("rejects a name used by another franchise with 409 CONFLICT and keeps the old name")
+        void rejectsNameOfAnotherFranchise() {
+            Franchise franchise = withIdAndTimestamps(
+                    Franchise.builder().name("Franquicia Medellin").build(), 1L);
+            when(franchiseRepository.findById(1L)).thenReturn(Optional.of(franchise));
+            when(franchiseRepository.existsByNameIgnoreCaseAndIdNot("Franquicia Bogota", 1L))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> franchiseService.updateName(
+                    1L, new UpdateNameRequest("Franquicia Bogota")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("A franchise named 'Franquicia Bogota' already exists")
+                    .extracting(ex -> ((BusinessException) ex).getStatus())
+                    .isEqualTo(HttpStatus.CONFLICT);
+
+            assertThat(franchise.getName()).isEqualTo("Franquicia Medellin");
+            verify(franchiseRepository, never()).saveAndFlush(any());
         }
     }
 

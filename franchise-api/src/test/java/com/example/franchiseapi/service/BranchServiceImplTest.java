@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateBranchRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.BranchResponse;
 import com.example.franchiseapi.entity.Branch;
 import com.example.franchiseapi.entity.Franchise;
@@ -194,6 +195,60 @@ class BranchServiceImplTest {
             assertThatThrownBy(() -> branchService.findByFranchise(10L))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Franchise with id 10 not found");
+        }
+    }
+
+    @Nested
+    @DisplayName("updateName")
+    class UpdateName {
+
+        @Test
+        @DisplayName("renames the branch, checking uniqueness inside its own franchise")
+        void renamesBranch() {
+            Branch branch = withIdAndTimestamps(
+                    Branch.builder().name("Sucursal Norte").franchise(franchise).build(), 5L);
+            when(branchRepository.findById(5L)).thenReturn(Optional.of(branch));
+            when(branchRepository.existsByFranchiseIdAndNameIgnoreCaseAndIdNot(1L, "Sucursal Centro", 5L))
+                    .thenReturn(false);
+            when(branchRepository.saveAndFlush(branch)).thenReturn(branch);
+
+            BranchResponse response = branchService.updateName(
+                    5L, new UpdateNameRequest("  Sucursal Centro "));
+
+            assertThat(response.id()).isEqualTo(5L);
+            assertThat(response.name()).isEqualTo("Sucursal Centro");
+            assertThat(response.franchiseId()).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("raises 404 for an unknown branch and never persists")
+        void raisesNotFoundForUnknownBranch() {
+            when(branchRepository.findById(50L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> branchService.updateName(50L, new UpdateNameRequest("Otra")))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessage("Branch with id 50 not found");
+
+            verify(branchRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("rejects a name used by another branch of the franchise with 409 CONFLICT")
+        void rejectsNameOfSiblingBranch() {
+            Branch branch = withIdAndTimestamps(
+                    Branch.builder().name("Sucursal Norte").franchise(franchise).build(), 5L);
+            when(branchRepository.findById(5L)).thenReturn(Optional.of(branch));
+            when(branchRepository.existsByFranchiseIdAndNameIgnoreCaseAndIdNot(1L, "Sucursal Sur", 5L))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> branchService.updateName(5L, new UpdateNameRequest("Sucursal Sur")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("already exists in franchise 1")
+                    .extracting(ex -> ((BusinessException) ex).getStatus())
+                    .isEqualTo(HttpStatus.CONFLICT);
+
+            assertThat(branch.getName()).isEqualTo("Sucursal Norte");
+            verify(branchRepository, never()).saveAndFlush(any());
         }
     }
 

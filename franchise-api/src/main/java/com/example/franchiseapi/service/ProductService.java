@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service;
 
 import com.example.franchiseapi.dto.request.CreateProductRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.request.UpdateStockRequest;
 import com.example.franchiseapi.dto.response.ProductResponse;
 
@@ -28,6 +29,13 @@ public interface ProductService {
      * @throws com.example.franchiseapi.exception.BusinessException         400, negative stock
      */
     ProductResponse updateStock(Long branchId, Long productId, UpdateStockRequest request);
+
+    /**
+     * @throws com.example.franchiseapi.exception.ResourceNotFoundException 404, the product does not
+     *                                                                     exist in that branch
+     * @throws com.example.franchiseapi.exception.BusinessException         409, name already used in this branch
+     */
+    ProductResponse updateName(Long branchId, Long productId, UpdateNameRequest request);
 
     /**
      * @throws com.example.franchiseapi.exception.ResourceNotFoundException 404, unknown branch

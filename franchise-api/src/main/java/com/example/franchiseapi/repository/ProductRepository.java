@@ -16,6 +16,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     /** Enforces "no duplicated product name inside one branch". */
     boolean existsByBranchIdAndNameIgnoreCase(Long branchId, String name);
 
+    /** Same rule on rename: the product being renamed does not collide with itself. */
+    boolean existsByBranchIdAndNameIgnoreCaseAndIdNot(Long branchId, String name, Long id);
+
     /**
      * Scoped lookup: the product must exist *and* belong to the given branch.
      * A product addressed through the wrong branch is indistinguishable from a

@@ -1,6 +1,7 @@
 package com.example.franchiseapi.service.impl;
 
 import com.example.franchiseapi.dto.request.CreateBranchRequest;
+import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.BranchResponse;
 import com.example.franchiseapi.entity.Branch;
 import com.example.franchiseapi.entity.Franchise;
@@ -23,6 +24,7 @@ import java.util.List;
 public class BranchServiceImpl implements BranchService {
 
     private static final String FRANCHISE = "Franchise";
+    private static final String BRANCH = "Branch";
 
     private final BranchRepository branchRepository;
     private final FranchiseRepository franchiseRepository;
@@ -46,6 +48,30 @@ public class BranchServiceImpl implements BranchService {
 
         log.info("Branch created: id={}, name={}, franchiseId={}", saved.getId(), saved.getName(), franchiseId);
         return BranchMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public BranchResponse updateName(Long branchId, UpdateNameRequest request) {
+        Branch branch = branchRepository.findById(branchId)
+                .orElseThrow(() -> ResourceNotFoundException.of(BRANCH, branchId));
+
+        // Resolved from the proxy identifier: the franchise itself is not loaded.
+        Long franchiseId = branch.getFranchise().getId();
+        String name = request.name().trim();
+        if (branchRepository.existsByFranchiseIdAndNameIgnoreCaseAndIdNot(franchiseId, name, branchId)) {
+            throw BusinessException.conflict(
+                    "A branch named '%s' already exists in franchise %d".formatted(name, franchiseId));
+        }
+
+        String previousName = branch.getName();
+        branch.setName(name);
+        // Flushed so the @UpdateTimestamp is written before the response is mapped.
+        Branch updated = branchRepository.saveAndFlush(branch);
+
+        log.info("Branch renamed: id={}, franchiseId={}, '{}' -> '{}'",
+                branchId, franchiseId, previousName, updated.getName());
+        return BranchMapper.toResponse(updated);
     }
 
     @Override
