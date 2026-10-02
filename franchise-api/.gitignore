@@ -43,3 +43,12 @@ replay_pid*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Terraform -------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan

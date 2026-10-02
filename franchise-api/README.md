@@ -205,6 +205,18 @@ La aplicación se distribuye como una imagen Docker sin estado; el único estado
 
 Como el repositorio es público, la imagen también lo es y se descarga sin credenciales (`docker pull ghcr.io/alejovl04/franchise-api:latest`). Si el repositorio pasara a ser privado, el servidor tendría que hacer `docker login ghcr.io` con un token con permiso `read:packages`.
 
+### En AWS con Terraform (recomendado)
+
+[`infra/aws`](infra/aws/README.md) aprovisiona como código toda la solución en AWS: MySQL 8.4 gestionado en **RDS** (privado, cifrado, contraseñas en Parameter Store) y la API en **EC2** con la imagen publicada por el pipeline.
+
+```bash
+cd infra/aws
+terraform init
+terraform apply      # muestra api_url y swagger_url al terminar
+```
+
+Requisitos, operación, costos y cómo eliminarlo: [infra/aws/README.md](infra/aws/README.md).
+
 ### Opción A: un servidor con Docker Compose (VM)
 
 Requisitos: una VM con Docker Engine y Compose v2.24 o superior, y los puertos 80/443 (o el de la API) abiertos.
@@ -298,5 +310,6 @@ src/main/java/com/example/franchiseapi
 src/main/resources/db/migration   Migraciones Flyway (tablas y procedimientos)
 database/setup.sql                Creación de la base de datos y el usuario (MySQL propio)
 docker-compose.prod.yml           Overrides de Compose para un servidor de producción
-../.github/workflows/ci.yml       Pruebas y publicación de la imagen en GHCR
+infra/aws/                        Terraform: RDS MySQL + EC2 en AWS
+../.github/workflows/ci.yml       Pruebas, validación de Terraform y publicación de la imagen en GHCR
 ```

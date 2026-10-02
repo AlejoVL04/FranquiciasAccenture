@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars to override the defaults in variables.tf.
+# terraform.tfvars is git-ignored.
+
+aws_region = "us-east-1"
+
+# Pin a released image instead of :latest for reproducible deployments.
+# api_image = "ghcr.io/alejovl04/franchise-api:1.0.0"
+
+# Restrict who can reach the API (default: everyone).
+# allowed_http_cidrs = ["203.0.113.10/32"]
+
+# swagger_enabled = false

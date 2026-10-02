@@ -2,7 +2,8 @@
 # CI/CD for franchise-api
 #
 #   every push / PR : unit + integration tests (Testcontainers uses the
-#                     runner's Docker daemon) and a Docker build check
+#                     runner's Docker daemon), Terraform fmt/validate and a
+#                     Docker build check
 #   push to main    : the image is published to GitHub Container Registry
 #                     as ghcr.io/<owner>/franchise-api:{latest,sha-<commit>}
 #   tag vX.Y.Z      : also published as :X.Y.Z
@@ -51,6 +52,28 @@ jobs:
           path: |
             franchise-api/target/surefire-reports
             franchise-api/target/failsafe-reports
+
+  terraform:
+    name: Terraform (AWS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: franchise-api/infra/aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Format
+        run: terraform fmt -check -diff
+
+      # No backend and no credentials: checks syntax, types and references only.
+      - name: Validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
 
   image:
     name: Docker image

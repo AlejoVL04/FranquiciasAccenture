@@ -1,0 +1,87 @@
+#!/bin/bash
+# ---------------------------------------------------------------------------
+# First boot of the API instance (Amazon Linux 2023). Rendered by Terraform:
+# $${...} are Terraform values, plain $VARS are shell variables.
+#
+#   1. Docker + 1 GiB swap (t3.micro has 1 GiB of RAM).
+#   2. Database user for the API, created with the RDS master user and the
+#      same grants as database/setup.sql. Idempotent.
+#   3. API container, through /usr/local/bin/franchise-api-deploy, which is
+#      also what later deployments run (see infra/aws/README).
+# Log: /var/log/cloud-init-output.log
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=1024
+  chmod 600 /swapfile
+  mkswap /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+swapon -a
+
+dnf install -y docker
+systemctl enable --now docker
+
+get_secret() {
+  aws ssm get-parameter --region "${region}" --name "$1" \
+    --with-decryption --query Parameter.Value --output text
+}
+
+MASTER_PW="$(get_secret '${master_pw_param}')"
+APP_PW="$(get_secret '${app_pw_param}')"
+
+# --- Application database user ---------------------------------------------
+cat > /root/create-app-user.sql <<SQL
+CREATE USER IF NOT EXISTS '${db_app_user}'@'%' IDENTIFIED BY '$APP_PW';
+ALTER USER '${db_app_user}'@'%' IDENTIFIED BY '$APP_PW';
+GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE,
+      CREATE, ALTER, DROP, INDEX, REFERENCES,
+      CREATE ROUTINE, ALTER ROUTINE
+    ON \`${db_name}\`.* TO '${db_app_user}'@'%';
+SQL
+chmod 600 /root/create-app-user.sql
+
+for attempt in $(seq 1 30); do
+  if docker run --rm -i -e MYSQL_PWD="$MASTER_PW" mysql:8.4 \
+       mysql -h '${db_host}' -P '${db_port}' -u '${db_master_user}' \
+       < /root/create-app-user.sql; then
+    break
+  fi
+  echo "MySQL not reachable yet (attempt $attempt), retrying in 10s"
+  sleep 10
+done
+rm -f /root/create-app-user.sql
+
+# --- API configuration -------------------------------------------------------
+install -d -m 700 /etc/franchise-api
+cat > /etc/franchise-api/api.env <<ENV
+DB_HOST=${db_host}
+DB_PORT=${db_port}
+DB_NAME=${db_name}
+DB_USERNAME=${db_app_user}
+DB_PASSWORD=$APP_PW
+DB_PARAMS=sslMode=REQUIRED
+SWAGGER_ENABLED=${swagger_enabled}
+SERVER_PORT=8080
+JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=70
+ENV
+chmod 600 /etc/franchise-api/api.env
+
+# --- Deployment script (first boot and every later release) -----------------
+cat > /usr/local/bin/franchise-api-deploy <<'DEPLOY'
+#!/bin/bash
+# Usage: franchise-api-deploy [image]   (defaults to the image set in Terraform)
+set -euo pipefail
+IMAGE="$${1:-${api_image}}"
+docker pull "$IMAGE"
+docker rm -f franchise-api 2>/dev/null || true
+docker run -d --name franchise-api --restart unless-stopped \
+  -p 80:8080 --env-file /etc/franchise-api/api.env \
+  --log-opt max-size=10m --log-opt max-file=5 \
+  "$IMAGE"
+docker image prune -f
+DEPLOY
+chmod 755 /usr/local/bin/franchise-api-deploy
+
+/usr/local/bin/franchise-api-deploy
