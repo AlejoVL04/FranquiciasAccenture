@@ -66,7 +66,9 @@ resource "aws_instance" "api" {
     encrypted   = true
   }
 
-  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+  # CRLF -> LF guards against a Windows checkout without .gitattributes: bash
+  # on the instance would fail on the first line otherwise.
+  user_data = replace(templatefile("${path.module}/user_data.sh.tftpl", {
     region          = var.aws_region
     api_image       = var.api_image
     swagger_enabled = var.swagger_enabled
@@ -77,7 +79,7 @@ resource "aws_instance" "api" {
     db_app_user     = var.db_app_username
     master_pw_param = aws_ssm_parameter.db_master_password.name
     app_pw_param    = aws_ssm_parameter.db_app_password.name
-  })
+  }), "\r\n", "\n")
   user_data_replace_on_change = true
 
   # The AMI parameter moves with every Amazon Linux release; replacing the

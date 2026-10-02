@@ -1,0 +1,5 @@
+# Files executed on Linux (container build, EC2 user data) must keep LF line
+# endings even when the repository is checked out on Windows.
+*.sh      text eol=lf
+*.tftpl   text eol=lf
+Dockerfile text eol=lf
