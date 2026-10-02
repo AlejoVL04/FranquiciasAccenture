@@ -203,7 +203,7 @@ La aplicación se distribuye como una imagen Docker sin estado; el único estado
 - En cada push y pull request ejecuta `mvn verify` (pruebas unitarias y de integración con Testcontainers) y construye la imagen.
 - En cada push a `main` publica la imagen en GitHub Container Registry: `ghcr.io/alejovl04/franchise-api:latest` y `:sha-<commit>`. Un tag `vX.Y.Z` publica además `:X.Y.Z`.
 
-El paquete de GHCR se crea privado la primera vez. Para descargarlo sin credenciales, hacerlo público en GitHub → *Packages* → `franchise-api` → *Package settings*; si no, hacer `docker login ghcr.io` en el servidor con un token con permiso `read:packages`.
+Como el repositorio es público, la imagen también lo es y se descarga sin credenciales (`docker pull ghcr.io/alejovl04/franchise-api:latest`). Si el repositorio pasara a ser privado, el servidor tendría que hacer `docker login ghcr.io` con un token con permiso `read:packages`.
 
 ### Opción A: un servidor con Docker Compose (VM)
 
