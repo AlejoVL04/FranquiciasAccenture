@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -83,6 +84,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleNoHandler(NoHandlerFoundException ex,
                                                          HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "No endpoint %s %s".formatted(ex.getHttpMethod(), ex.getRequestURL()), request);
+    }
+
+    /**
+     * 404 — since Spring 6.1 an unmatched route falls through to the static
+     * resource handler, which throws this instead of {@link NoHandlerFoundException}.
+     * Without this handler it reached the catch-all and became a 500.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex,
+                                                          HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND,
+                "No endpoint %s %s".formatted(request.getMethod(), request.getRequestURI()), request);
     }
 
     /**

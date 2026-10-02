@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -476,6 +477,24 @@ class FranchiseApiIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Franchise with id 10 not found"))
                 .andExpect(jsonPath("$.path").value("/api/v1/franchises/10"));
+    }
+
+    @Test
+    @DisplayName("an unknown route returns 404 with the standard error body, not 500")
+    void unknownRouteReturns404() throws Exception {
+        mockMvc.perform(get("/api/v1/does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("No endpoint GET /api/v1/does-not-exist"))
+                .andExpect(jsonPath("$.path").value("/api/v1/does-not-exist"));
+    }
+
+    @Test
+    @DisplayName("the root path redirects to Swagger UI")
+    void rootRedirectsToSwaggerUi() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/swagger-ui.html"));
     }
 
     @Test
