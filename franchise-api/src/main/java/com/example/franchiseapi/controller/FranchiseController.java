@@ -143,7 +143,8 @@ public class FranchiseController {
                     Returns, for the given franchise, the product holding the most stock in each of \
                     its branches. At most one entry per branch.
 
-                    Resolved by a single native query using a window function \
+                    Resolved by a single call to the stored procedure sp_franchise_top_stock_products, \
+                    which uses a window function \
                     (ROW_NUMBER partitioned by branch, ordered by stock descending), so the ranking \
                     happens inside MySQL: no product entity is loaded into the application and the \
                     cost does not grow with the number of branches, which rules out N+1.

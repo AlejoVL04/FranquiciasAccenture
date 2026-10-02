@@ -517,6 +517,21 @@ class FranchiseApiIT extends AbstractIntegrationTest {
                 });
     }
 
+    @Test
+    @DisplayName("names are stored trimmed, whichever endpoint writes them")
+    void namesAreTrimmed() throws Exception {
+        long franchiseId = createFranchise("  Franquicia Medellin  ");
+        long branchId = createBranch(franchiseId, "  Sucursal El Poblado ");
+        long productId = createProduct(branchId, " Laptop Lenovo  ", 5);
+
+        assertThat(franchiseRepository.findById(franchiseId).orElseThrow().getName())
+                .isEqualTo("Franquicia Medellin");
+        assertThat(branchRepository.findById(branchId).orElseThrow().getName())
+                .isEqualTo("Sucursal El Poblado");
+        assertThat(productRepository.findById(productId).orElseThrow().getName())
+                .isEqualTo("Laptop Lenovo");
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private String json(Object payload) throws Exception {

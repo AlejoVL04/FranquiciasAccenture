@@ -5,7 +5,6 @@ import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.response.FranchiseResponse;
 import com.example.franchiseapi.dto.response.TopStockProductResponse;
 import com.example.franchiseapi.entity.Franchise;
-import com.example.franchiseapi.exception.BusinessException;
 import com.example.franchiseapi.exception.ResourceNotFoundException;
 import com.example.franchiseapi.mapper.FranchiseMapper;
 import com.example.franchiseapi.mapper.ProductMapper;
@@ -21,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Objects;
 
+import static com.example.franchiseapi.exception.StoredProcedureErrors.call;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,13 +35,7 @@ public class FranchiseServiceImpl implements FranchiseService {
     @Override
     @Transactional
     public FranchiseResponse create(CreateFranchiseRequest request) {
-        String name = request.name().trim();
-        if (franchiseRepository.existsByNameIgnoreCase(name)) {
-            throw BusinessException.conflict(
-                    "A franchise named '%s' already exists".formatted(name));
-        }
-
-        Franchise saved = franchiseRepository.save(Franchise.builder().name(name).build());
+        Franchise saved = call(() -> franchiseRepository.create(request.name()));
         log.info("Franchise created: id={}, name={}", saved.getId(), saved.getName());
         return FranchiseMapper.toResponse(saved);
     }
@@ -48,21 +43,8 @@ public class FranchiseServiceImpl implements FranchiseService {
     @Override
     @Transactional
     public FranchiseResponse updateName(Long franchiseId, UpdateNameRequest request) {
-        Franchise franchise = franchiseRepository.findById(franchiseId)
-                .orElseThrow(() -> ResourceNotFoundException.of(FRANCHISE, franchiseId));
-
-        String name = request.name().trim();
-        if (franchiseRepository.existsByNameIgnoreCaseAndIdNot(name, franchiseId)) {
-            throw BusinessException.conflict(
-                    "A franchise named '%s' already exists".formatted(name));
-        }
-
-        String previousName = franchise.getName();
-        franchise.setName(name);
-        // Flushed so the @UpdateTimestamp is written before the response is mapped.
-        Franchise updated = franchiseRepository.saveAndFlush(franchise);
-
-        log.info("Franchise renamed: id={}, '{}' -> '{}'", franchiseId, previousName, updated.getName());
+        Franchise updated = call(() -> franchiseRepository.updateName(franchiseId, request.name()));
+        log.info("Franchise renamed: id={}, name={}", franchiseId, updated.getName());
         return FranchiseMapper.toResponse(updated);
     }
 
@@ -84,14 +66,10 @@ public class FranchiseServiceImpl implements FranchiseService {
     @Transactional(readOnly = true)
     public List<TopStockProductResponse> findTopStockProductPerBranch(Long franchiseId,
                                                                       boolean includeBranchesWithoutProducts) {
-        // Fail with 404 for an unknown franchise rather than returning an empty
-        // list: an empty list is already the correct answer for a franchise that
-        // exists but has no branches, so the two cases must stay distinguishable.
-        if (!franchiseRepository.existsById(franchiseId)) {
-            throw ResourceNotFoundException.of(FRANCHISE, franchiseId);
-        }
-
-        List<TopStockProductProjection> rows = productRepository.findTopStockProductPerBranch(franchiseId);
+        // The procedure raises 404 for an unknown franchise, so an empty list
+        // here always means a franchise that exists but has no branches.
+        List<TopStockProductProjection> rows =
+                call(() -> productRepository.findTopStockProductPerBranch(franchiseId));
 
         List<TopStockProductResponse> result = rows.stream()
                 .filter(row -> includeBranchesWithoutProducts || Objects.nonNull(row.getProductId()))

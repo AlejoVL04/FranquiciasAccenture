@@ -4,9 +4,7 @@ import com.example.franchiseapi.dto.request.CreateProductRequest;
 import com.example.franchiseapi.dto.request.UpdateNameRequest;
 import com.example.franchiseapi.dto.request.UpdateStockRequest;
 import com.example.franchiseapi.dto.response.ProductResponse;
-import com.example.franchiseapi.entity.Branch;
 import com.example.franchiseapi.entity.Product;
-import com.example.franchiseapi.exception.BusinessException;
 import com.example.franchiseapi.exception.ResourceNotFoundException;
 import com.example.franchiseapi.mapper.ProductMapper;
 import com.example.franchiseapi.repository.BranchRepository;
@@ -18,6 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+
+import static com.example.franchiseapi.exception.StoredProcedureErrors.call;
+import static com.example.franchiseapi.exception.StoredProcedureErrors.run;
 
 @Slf4j
 @Service
@@ -33,23 +34,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public ProductResponse create(Long branchId, CreateProductRequest request) {
-        Branch branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> ResourceNotFoundException.of(BRANCH, branchId));
-
-        requireNonNegativeStock(request.stock());
-
-        String name = request.name().trim();
-        if (productRepository.existsByBranchIdAndNameIgnoreCase(branchId, name)) {
-            throw BusinessException.conflict(
-                    "A product named '%s' already exists in branch %d".formatted(name, branchId));
-        }
-
-        Product saved = productRepository.save(Product.builder()
-                .name(name)
-                .stock(request.stock())
-                .branch(branch)
-                .build());
-
+        Product saved = call(() -> productRepository.create(branchId, request.name(), request.stock()));
         log.info("Product created: id={}, name={}, stock={}, branchId={}",
                 saved.getId(), saved.getName(), saved.getStock(), branchId);
         return ProductMapper.toResponse(saved);
@@ -58,48 +43,23 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void delete(Long branchId, Long productId) {
-        Product product = requireProductInBranch(branchId, productId);
-        productRepository.delete(product);
+        run(() -> productRepository.deleteFromBranch(branchId, productId));
         log.info("Product deleted: id={}, branchId={}", productId, branchId);
     }
 
     @Override
     @Transactional
     public ProductResponse updateStock(Long branchId, Long productId, UpdateStockRequest request) {
-        requireNonNegativeStock(request.stock());
-
-        Product product = requireProductInBranch(branchId, productId);
-        int previousStock = product.getStock();
-        product.setStock(request.stock());
-
-        // The entity is managed, so the UPDATE would flush on commit anyway.
-        // Flushing here forces Hibernate to write the @UpdateTimestamp before the
-        // response is mapped, so updatedAt in the payload matches the stored row.
-        Product updated = productRepository.saveAndFlush(product);
-
-        log.info("Stock updated: productId={}, branchId={}, {} -> {}",
-                productId, branchId, previousStock, updated.getStock());
+        Product updated = call(() -> productRepository.updateStock(branchId, productId, request.stock()));
+        log.info("Stock updated: productId={}, branchId={}, stock={}", productId, branchId, updated.getStock());
         return ProductMapper.toResponse(updated);
     }
 
     @Override
     @Transactional
     public ProductResponse updateName(Long branchId, Long productId, UpdateNameRequest request) {
-        Product product = requireProductInBranch(branchId, productId);
-
-        String name = request.name().trim();
-        if (productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(branchId, name, productId)) {
-            throw BusinessException.conflict(
-                    "A product named '%s' already exists in branch %d".formatted(name, branchId));
-        }
-
-        String previousName = product.getName();
-        product.setName(name);
-        // Flushed so the @UpdateTimestamp is written before the response is mapped.
-        Product updated = productRepository.saveAndFlush(product);
-
-        log.info("Product renamed: id={}, branchId={}, '{}' -> '{}'",
-                productId, branchId, previousName, updated.getName());
+        Product updated = call(() -> productRepository.updateName(branchId, productId, request.name()));
+        log.info("Product renamed: id={}, branchId={}, name={}", productId, branchId, updated.getName());
         return ProductMapper.toResponse(updated);
     }
 
@@ -118,26 +78,5 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> ResourceNotFoundException.of(PRODUCT, productId));
         return ProductMapper.toResponse(product);
-    }
-
-    /**
-     * Resolves a product by id <em>and</em> owning branch, so addressing a
-     * product through a branch that does not own it returns 404 instead of
-     * silently mutating another branch's data.
-     */
-    private Product requireProductInBranch(Long branchId, Long productId) {
-        return productRepository.findByIdAndBranchId(productId, branchId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Product with id %d not found in branch %d".formatted(productId, branchId)));
-    }
-
-    /**
-     * Second line of defence behind {@code @Min(0)} on the request DTOs: this one
-     * guards the service contract itself, for any caller that bypasses the web layer.
-     */
-    private void requireNonNegativeStock(Integer stock) {
-        if (stock == null || stock < 0) {
-            throw new BusinessException("Stock must be greater than or equal to 0");
-        }
     }
 }

@@ -11,11 +11,11 @@ import com.example.franchiseapi.repository.FranchiseRepository;
 import com.example.franchiseapi.repository.ProductRepository;
 import com.example.franchiseapi.repository.projection.TopStockProductProjection;
 import com.example.franchiseapi.service.impl.FranchiseServiceImpl;
+import com.example.franchiseapi.support.ProcedureFailures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -27,10 +27,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,11 +47,10 @@ class FranchiseServiceImplTest {
     class Create {
 
         @Test
-        @DisplayName("persists the franchise and returns it with its generated id")
+        @DisplayName("returns the franchise stored by the procedure with its generated id")
         void createsFranchise() {
-            when(franchiseRepository.existsByNameIgnoreCase("Franquicia Medellin")).thenReturn(false);
-            when(franchiseRepository.save(any(Franchise.class)))
-                    .thenAnswer(invocation -> withIdAndTimestamps(invocation.getArgument(0), 1L));
+            when(franchiseRepository.create("Franquicia Medellin"))
+                    .thenReturn(withIdAndTimestamps(Franchise.builder().name("Franquicia Medellin").build(), 1L));
 
             FranchiseResponse response = franchiseService.create(
                     new CreateFranchiseRequest("Franquicia Medellin"));
@@ -67,23 +62,10 @@ class FranchiseServiceImplTest {
         }
 
         @Test
-        @DisplayName("trims surrounding whitespace before persisting")
-        void trimsName() {
-            when(franchiseRepository.existsByNameIgnoreCase("Franquicia A")).thenReturn(false);
-            when(franchiseRepository.save(any(Franchise.class)))
-                    .thenAnswer(invocation -> withIdAndTimestamps(invocation.getArgument(0), 7L));
-
-            franchiseService.create(new CreateFranchiseRequest("   Franquicia A   "));
-
-            ArgumentCaptor<Franchise> captor = ArgumentCaptor.forClass(Franchise.class);
-            verify(franchiseRepository).save(captor.capture());
-            assertThat(captor.getValue().getName()).isEqualTo("Franquicia A");
-        }
-
-        @Test
-        @DisplayName("rejects a duplicated name with 409 CONFLICT and does not persist")
+        @DisplayName("raises 409 when the procedure reports a duplicated name")
         void rejectsDuplicatedName() {
-            when(franchiseRepository.existsByNameIgnoreCase("Franquicia Medellin")).thenReturn(true);
+            when(franchiseRepository.create("Franquicia Medellin"))
+                    .thenThrow(ProcedureFailures.conflict("A franchise named 'Franquicia Medellin' already exists"));
 
             assertThatThrownBy(() -> franchiseService.create(
                     new CreateFranchiseRequest("Franquicia Medellin")))
@@ -91,17 +73,6 @@ class FranchiseServiceImplTest {
                     .hasMessageContaining("already exists")
                     .extracting(ex -> ((BusinessException) ex).getStatus())
                     .isEqualTo(HttpStatus.CONFLICT);
-
-            verify(franchiseRepository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("treats names differing only in case as duplicates")
-        void duplicateCheckIsCaseInsensitive() {
-            when(franchiseRepository.existsByNameIgnoreCase(anyString())).thenReturn(true);
-
-            assertThatThrownBy(() -> franchiseService.create(new CreateFranchiseRequest("FRANQUICIA A")))
-                    .isInstanceOf(BusinessException.class);
         }
     }
 
@@ -162,7 +133,6 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("maps one entry per branch for a franchise with several branches")
         void mapsOneEntryPerBranch() {
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of(
                     row(1L, "Franquicia A", 1L, "Sucursal Norte", 10L, "Mouse", 50),
                     row(1L, "Franquicia A", 2L, "Sucursal Centro", 14L, "Laptop", 40),
@@ -189,7 +159,6 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("omits branches without products by default")
         void omitsEmptyBranchesByDefault() {
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of(
                     row(1L, "Franquicia A", 1L, "Sucursal Norte", 10L, "Mouse", 50),
                     row(1L, "Franquicia A", 2L, "Sucursal Vacia", null, null, null)));
@@ -206,7 +175,6 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("reports branches without products with null product fields when asked to")
         void reportsEmptyBranchesWhenRequested() {
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of(
                     row(1L, "Franquicia A", 1L, "Sucursal Norte", 10L, "Mouse", 50),
                     row(1L, "Franquicia A", 2L, "Sucursal Vacia", null, null, null)));
@@ -225,7 +193,6 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("keeps a product whose stock is 0, since zero is a valid maximum")
         void keepsZeroStockProduct() {
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of(
                     row(1L, "Franquicia A", 1L, "Sucursal Agotada", 10L, "Mouse", 0)));
 
@@ -244,7 +211,6 @@ class FranchiseServiceImplTest {
         void returnsSingleRowOnTie() {
             // The tie is broken inside SQL by "id ASC", so the service receives one
             // row per branch already. This asserts the service does not re-expand it.
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of(
                     row(1L, "Franquicia A", 1L, "Sucursal Norte", 5L, "Mouse", 50)));
 
@@ -259,7 +225,6 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("returns an empty list for a franchise that has no branches")
         void returnsEmptyForFranchiseWithoutBranches() {
-            when(franchiseRepository.existsById(1L)).thenReturn(true);
             when(productRepository.findTopStockProductPerBranch(1L)).thenReturn(List.of());
 
             assertThat(franchiseService.findTopStockProductPerBranch(1L, false)).isEmpty();
@@ -268,13 +233,12 @@ class FranchiseServiceImplTest {
         @Test
         @DisplayName("raises 404 for an unknown franchise instead of returning an empty list")
         void raisesNotFoundForUnknownFranchise() {
-            when(franchiseRepository.existsById(99L)).thenReturn(false);
+            when(productRepository.findTopStockProductPerBranch(99L))
+                    .thenThrow(ProcedureFailures.notFound("Franchise with id 99 not found"));
 
             assertThatThrownBy(() -> franchiseService.findTopStockProductPerBranch(99L, false))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Franchise with id 99 not found");
-
-            verify(productRepository, never()).findTopStockProductPerBranch(any());
         }
     }
 
@@ -283,43 +247,34 @@ class FranchiseServiceImplTest {
     class UpdateName {
 
         @Test
-        @DisplayName("renames the franchise, trimming surrounding whitespace")
+        @DisplayName("returns the franchise renamed by the procedure")
         void renamesFranchise() {
-            Franchise franchise = withIdAndTimestamps(
-                    Franchise.builder().name("Franquicia Medellin").build(), 1L);
-            when(franchiseRepository.findById(1L)).thenReturn(Optional.of(franchise));
-            when(franchiseRepository.existsByNameIgnoreCaseAndIdNot("Franquicia Antioquia", 1L))
-                    .thenReturn(false);
-            when(franchiseRepository.saveAndFlush(franchise)).thenReturn(franchise);
+            when(franchiseRepository.updateName(1L, "Franquicia Antioquia"))
+                    .thenReturn(withIdAndTimestamps(Franchise.builder().name("Franquicia Antioquia").build(), 1L));
 
             FranchiseResponse response = franchiseService.updateName(
-                    1L, new UpdateNameRequest("  Franquicia Antioquia  "));
+                    1L, new UpdateNameRequest("Franquicia Antioquia"));
 
             assertThat(response.id()).isEqualTo(1L);
             assertThat(response.name()).isEqualTo("Franquicia Antioquia");
-            assertThat(franchise.getName()).isEqualTo("Franquicia Antioquia");
         }
 
         @Test
-        @DisplayName("raises 404 for an unknown franchise and never persists")
+        @DisplayName("raises 404 when the procedure reports an unknown franchise")
         void raisesNotFoundForUnknownFranchise() {
-            when(franchiseRepository.findById(99L)).thenReturn(Optional.empty());
+            when(franchiseRepository.updateName(99L, "Otra"))
+                    .thenThrow(ProcedureFailures.notFound("Franchise with id 99 not found"));
 
             assertThatThrownBy(() -> franchiseService.updateName(99L, new UpdateNameRequest("Otra")))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Franchise with id 99 not found");
-
-            verify(franchiseRepository, never()).saveAndFlush(any());
         }
 
         @Test
-        @DisplayName("rejects a name used by another franchise with 409 CONFLICT and keeps the old name")
+        @DisplayName("raises 409 when the procedure reports a name used by another franchise")
         void rejectsNameOfAnotherFranchise() {
-            Franchise franchise = withIdAndTimestamps(
-                    Franchise.builder().name("Franquicia Medellin").build(), 1L);
-            when(franchiseRepository.findById(1L)).thenReturn(Optional.of(franchise));
-            when(franchiseRepository.existsByNameIgnoreCaseAndIdNot("Franquicia Bogota", 1L))
-                    .thenReturn(true);
+            when(franchiseRepository.updateName(1L, "Franquicia Bogota"))
+                    .thenThrow(ProcedureFailures.conflict("A franchise named 'Franquicia Bogota' already exists"));
 
             assertThatThrownBy(() -> franchiseService.updateName(
                     1L, new UpdateNameRequest("Franquicia Bogota")))
@@ -327,9 +282,6 @@ class FranchiseServiceImplTest {
                     .hasMessage("A franchise named 'Franquicia Bogota' already exists")
                     .extracting(ex -> ((BusinessException) ex).getStatus())
                     .isEqualTo(HttpStatus.CONFLICT);
-
-            assertThat(franchise.getName()).isEqualTo("Franquicia Medellin");
-            verify(franchiseRepository, never()).saveAndFlush(any());
         }
     }
 

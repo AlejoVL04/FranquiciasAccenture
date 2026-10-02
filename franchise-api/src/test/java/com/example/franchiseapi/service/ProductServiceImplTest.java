@@ -12,12 +12,12 @@ import com.example.franchiseapi.exception.ResourceNotFoundException;
 import com.example.franchiseapi.repository.BranchRepository;
 import com.example.franchiseapi.repository.ProductRepository;
 import com.example.franchiseapi.service.impl.ProductServiceImpl;
+import com.example.franchiseapi.support.ProcedureFailures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,11 +29,15 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * The business rules are enforced by the stored procedures and covered against
+ * MySQL in the integration tests. These tests check that the service calls the
+ * right procedure and turns its errors into the right exceptions.
+ */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductService")
 class ProductServiceImplTest {
@@ -65,13 +69,10 @@ class ProductServiceImplTest {
     class Create {
 
         @Test
-        @DisplayName("persists the product linked to its branch")
+        @DisplayName("returns the product stored by the procedure, linked to its branch")
         void createsProduct() {
-            when(branchRepository.findById(1L)).thenReturn(Optional.of(branch));
-            when(productRepository.existsByBranchIdAndNameIgnoreCase(1L, "Laptop Lenovo"))
-                    .thenReturn(false);
-            when(productRepository.save(any(Product.class)))
-                    .thenAnswer(invocation -> withIdAndTimestamps(invocation.getArgument(0), 1L));
+            when(productRepository.create(1L, "Laptop Lenovo", 25))
+                    .thenReturn(product(1L, "Laptop Lenovo", 25));
 
             ProductResponse response = productService.create(
                     1L, new CreateProductRequest("Laptop Lenovo", 25));
@@ -83,36 +84,23 @@ class ProductServiceImplTest {
         }
 
         @Test
-        @DisplayName("accepts an initial stock of 0")
-        void acceptsZeroStock() {
-            when(branchRepository.findById(1L)).thenReturn(Optional.of(branch));
-            when(productRepository.existsByBranchIdAndNameIgnoreCase(1L, "Mouse")).thenReturn(false);
-            when(productRepository.save(any(Product.class)))
-                    .thenAnswer(invocation -> withIdAndTimestamps(invocation.getArgument(0), 2L));
-
-            assertThat(productService.create(1L, new CreateProductRequest("Mouse", 0)).stock())
-                    .isZero();
-        }
-
-        @Test
-        @DisplayName("raises 404 when the branch does not exist and never persists")
+        @DisplayName("raises 404 when the procedure reports an unknown branch")
         void raisesNotFoundForUnknownBranch() {
-            when(branchRepository.findById(10L)).thenReturn(Optional.empty());
+            when(productRepository.create(10L, "Laptop Lenovo", 25))
+                    .thenThrow(ProcedureFailures.notFound("Branch with id 10 not found"));
 
             assertThatThrownBy(() -> productService.create(
                     10L, new CreateProductRequest("Laptop Lenovo", 25)))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Branch with id 10 not found");
-
-            verify(productRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("rejects a name already used inside the same branch with 409 CONFLICT")
-        void rejectsDuplicatedNameInSameBranch() {
-            when(branchRepository.findById(1L)).thenReturn(Optional.of(branch));
-            when(productRepository.existsByBranchIdAndNameIgnoreCase(1L, "Laptop Lenovo"))
-                    .thenReturn(true);
+        @DisplayName("raises 409 when the procedure reports a name already used in the branch")
+        void rejectsDuplicatedName() {
+            when(productRepository.create(1L, "Laptop Lenovo", 25))
+                    .thenThrow(ProcedureFailures.conflict(
+                            "A product named 'Laptop Lenovo' already exists in branch 1"));
 
             assertThatThrownBy(() -> productService.create(
                     1L, new CreateProductRequest("Laptop Lenovo", 25)))
@@ -120,14 +108,13 @@ class ProductServiceImplTest {
                     .hasMessageContaining("already exists in branch 1")
                     .extracting(ex -> ((BusinessException) ex).getStatus())
                     .isEqualTo(HttpStatus.CONFLICT);
-
-            verify(productRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("rejects a negative initial stock with 400 BAD REQUEST")
+        @DisplayName("raises 400 when the procedure rejects a negative stock")
         void rejectsNegativeStock() {
-            when(branchRepository.findById(1L)).thenReturn(Optional.of(branch));
+            when(productRepository.create(1L, "Laptop Lenovo", -1))
+                    .thenThrow(ProcedureFailures.badRequest("Stock must be greater than or equal to 0"));
 
             assertThatThrownBy(() -> productService.create(
                     1L, new CreateProductRequest("Laptop Lenovo", -1)))
@@ -135,23 +122,6 @@ class ProductServiceImplTest {
                     .hasMessage("Stock must be greater than or equal to 0")
                     .extracting(ex -> ((BusinessException) ex).getStatus())
                     .isEqualTo(HttpStatus.BAD_REQUEST);
-
-            verify(productRepository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("trims surrounding whitespace before persisting")
-        void trimsName() {
-            when(branchRepository.findById(1L)).thenReturn(Optional.of(branch));
-            when(productRepository.existsByBranchIdAndNameIgnoreCase(1L, "Teclado")).thenReturn(false);
-            when(productRepository.save(any(Product.class)))
-                    .thenAnswer(invocation -> withIdAndTimestamps(invocation.getArgument(0), 3L));
-
-            productService.create(1L, new CreateProductRequest("  Teclado  ", 10));
-
-            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-            verify(productRepository).save(captor.capture());
-            assertThat(captor.getValue().getName()).isEqualTo("Teclado");
         }
     }
 
@@ -160,39 +130,22 @@ class ProductServiceImplTest {
     class Delete {
 
         @Test
-        @DisplayName("removes a product that belongs to the given branch")
+        @DisplayName("calls the delete procedure scoped by branch")
         void deletesProduct() {
-            Product product = product(1L, "Laptop Lenovo", 25);
-            when(productRepository.findByIdAndBranchId(1L, 1L)).thenReturn(Optional.of(product));
+            productService.delete(1L, 3L);
 
-            productService.delete(1L, 1L);
-
-            verify(productRepository).delete(product);
+            verify(productRepository).deleteFromBranch(1L, 3L);
         }
 
         @Test
-        @DisplayName("raises 404 for an unknown product")
-        void raisesNotFoundForUnknownProduct() {
-            when(productRepository.findByIdAndBranchId(99L, 1L)).thenReturn(Optional.empty());
+        @DisplayName("raises 404 when the product does not exist in that branch")
+        void raisesNotFoundThroughWrongBranch() {
+            doThrow(ProcedureFailures.notFound("Product with id 3 not found in branch 2"))
+                    .when(productRepository).deleteFromBranch(2L, 3L);
 
-            assertThatThrownBy(() -> productService.delete(1L, 99L))
+            assertThatThrownBy(() -> productService.delete(2L, 3L))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessage("Product with id 99 not found in branch 1");
-
-            verify(productRepository, never()).delete(any());
-        }
-
-        @Test
-        @DisplayName("raises 404 when the product exists but belongs to another branch")
-        void raisesNotFoundWhenProductBelongsToAnotherBranch() {
-            // The repository lookup is scoped by branch, so a mismatch yields empty.
-            when(productRepository.findByIdAndBranchId(1L, 2L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> productService.delete(2L, 1L))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessage("Product with id 1 not found in branch 2");
-
-            verify(productRepository, never()).delete(any());
+                    .hasMessage("Product with id 3 not found in branch 2");
         }
     }
 
@@ -201,65 +154,78 @@ class ProductServiceImplTest {
     class UpdateStock {
 
         @Test
-        @DisplayName("stores the new absolute stock and returns the updated product")
+        @DisplayName("returns the product with the stock stored by the procedure")
         void updatesStock() {
-            Product product = product(1L, "Laptop Lenovo", 25);
-            when(productRepository.findByIdAndBranchId(1L, 1L)).thenReturn(Optional.of(product));
-            when(productRepository.saveAndFlush(product)).thenReturn(product);
+            when(productRepository.updateStock(1L, 3L, 50)).thenReturn(product(3L, "Laptop Lenovo", 50));
 
-            ProductResponse response = productService.updateStock(1L, 1L, new UpdateStockRequest(50));
-
-            assertThat(response.stock()).isEqualTo(50);
-            assertThat(product.getStock()).isEqualTo(50);
+            assertThat(productService.updateStock(1L, 3L, new UpdateStockRequest(50)).stock())
+                    .isEqualTo(50);
         }
 
         @Test
-        @DisplayName("allows dropping the stock to 0")
-        void allowsZeroStock() {
-            Product product = product(1L, "Laptop Lenovo", 25);
-            when(productRepository.findByIdAndBranchId(1L, 1L)).thenReturn(Optional.of(product));
-            when(productRepository.saveAndFlush(product)).thenReturn(product);
-
-            assertThat(productService.updateStock(1L, 1L, new UpdateStockRequest(0)).stock())
-                    .isZero();
-        }
-
-        @Test
-        @DisplayName("rejects a negative stock with 400 BAD REQUEST and does not touch the product")
+        @DisplayName("raises 400 when the procedure rejects a negative stock")
         void rejectsNegativeStock() {
-            assertThatThrownBy(() -> productService.updateStock(1L, 1L, new UpdateStockRequest(-5)))
+            when(productRepository.updateStock(1L, 3L, -5))
+                    .thenThrow(ProcedureFailures.badRequest("Stock must be greater than or equal to 0"));
+
+            assertThatThrownBy(() -> productService.updateStock(1L, 3L, new UpdateStockRequest(-5)))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessage("Stock must be greater than or equal to 0")
                     .extracting(ex -> ((BusinessException) ex).getStatus())
                     .isEqualTo(HttpStatus.BAD_REQUEST);
-
-            // Validation happens before the lookup, so nothing is read or written.
-            verify(productRepository, never()).findByIdAndBranchId(any(), any());
-            verify(productRepository, never()).saveAndFlush(any());
         }
 
         @Test
-        @DisplayName("raises 404 for an unknown product")
-        void raisesNotFoundForUnknownProduct() {
-            when(productRepository.findByIdAndBranchId(99L, 1L)).thenReturn(Optional.empty());
+        @DisplayName("raises 404 when the product does not exist in that branch")
+        void raisesNotFoundThroughWrongBranch() {
+            when(productRepository.updateStock(2L, 3L, 50))
+                    .thenThrow(ProcedureFailures.notFound("Product with id 3 not found in branch 2"));
 
-            assertThatThrownBy(() -> productService.updateStock(1L, 99L, new UpdateStockRequest(50)))
+            assertThatThrownBy(() -> productService.updateStock(2L, 3L, new UpdateStockRequest(50)))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessage("Product with id 99 not found in branch 1");
+                    .hasMessage("Product with id 3 not found in branch 2");
+        }
+    }
 
-            verify(productRepository, never()).saveAndFlush(any());
+    @Nested
+    @DisplayName("updateName")
+    class UpdateName {
+
+        @Test
+        @DisplayName("returns the product renamed by the procedure, stock untouched")
+        void renamesProduct() {
+            when(productRepository.updateName(1L, 3L, "Laptop Lenovo X1"))
+                    .thenReturn(product(3L, "Laptop Lenovo X1", 25));
+
+            ProductResponse response = productService.updateName(
+                    1L, 3L, new UpdateNameRequest("Laptop Lenovo X1"));
+
+            assertThat(response.name()).isEqualTo("Laptop Lenovo X1");
+            assertThat(response.stock()).isEqualTo(25);
         }
 
         @Test
-        @DisplayName("raises 404 when the product belongs to another branch")
-        void raisesNotFoundWhenProductBelongsToAnotherBranch() {
-            when(productRepository.findByIdAndBranchId(1L, 2L)).thenReturn(Optional.empty());
+        @DisplayName("raises 404 when the product does not exist in that branch")
+        void raisesNotFoundThroughWrongBranch() {
+            when(productRepository.updateName(2L, 3L, "Otro"))
+                    .thenThrow(ProcedureFailures.notFound("Product with id 3 not found in branch 2"));
 
-            assertThatThrownBy(() -> productService.updateStock(2L, 1L, new UpdateStockRequest(50)))
+            assertThatThrownBy(() -> productService.updateName(2L, 3L, new UpdateNameRequest("Otro")))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessage("Product with id 1 not found in branch 2");
+                    .hasMessage("Product with id 3 not found in branch 2");
+        }
 
-            verify(productRepository, never()).saveAndFlush(any());
+        @Test
+        @DisplayName("raises 409 when the procedure reports a name used by a sibling product")
+        void rejectsNameOfSiblingProduct() {
+            when(productRepository.updateName(1L, 3L, "Mouse Logitech"))
+                    .thenThrow(ProcedureFailures.conflict(
+                            "A product named 'Mouse Logitech' already exists in branch 1"));
+
+            assertThatThrownBy(() -> productService.updateName(
+                    1L, 3L, new UpdateNameRequest("Mouse Logitech")))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(ex -> ((BusinessException) ex).getStatus())
+                    .isEqualTo(HttpStatus.CONFLICT);
         }
     }
 
@@ -309,65 +275,8 @@ class ProductServiceImplTest {
         }
     }
 
-    @Nested
-    @DisplayName("updateName")
-    class UpdateName {
-
-        @Test
-        @DisplayName("renames the product and keeps its stock")
-        void renamesProduct() {
-            Product product = product(3L, "Laptop Lenovo", 25);
-            when(productRepository.findByIdAndBranchId(3L, 1L)).thenReturn(Optional.of(product));
-            when(productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(1L, "Laptop Lenovo X1", 3L))
-                    .thenReturn(false);
-            when(productRepository.saveAndFlush(product)).thenReturn(product);
-
-            ProductResponse response = productService.updateName(
-                    1L, 3L, new UpdateNameRequest(" Laptop Lenovo X1 "));
-
-            assertThat(response.id()).isEqualTo(3L);
-            assertThat(response.name()).isEqualTo("Laptop Lenovo X1");
-            assertThat(response.stock()).isEqualTo(25);
-        }
-
-        @Test
-        @DisplayName("raises 404 when the product does not belong to the branch")
-        void raisesNotFoundThroughWrongBranch() {
-            when(productRepository.findByIdAndBranchId(3L, 2L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> productService.updateName(2L, 3L, new UpdateNameRequest("Otro")))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessage("Product with id 3 not found in branch 2");
-
-            verify(productRepository, never()).saveAndFlush(any());
-        }
-
-        @Test
-        @DisplayName("rejects a name used by another product of the branch with 409 CONFLICT")
-        void rejectsNameOfSiblingProduct() {
-            Product product = product(3L, "Laptop Lenovo", 25);
-            when(productRepository.findByIdAndBranchId(3L, 1L)).thenReturn(Optional.of(product));
-            when(productRepository.existsByBranchIdAndNameIgnoreCaseAndIdNot(1L, "Mouse Logitech", 3L))
-                    .thenReturn(true);
-
-            assertThatThrownBy(() -> productService.updateName(
-                    1L, 3L, new UpdateNameRequest("Mouse Logitech")))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("already exists in branch 1")
-                    .extracting(ex -> ((BusinessException) ex).getStatus())
-                    .isEqualTo(HttpStatus.CONFLICT);
-
-            assertThat(product.getName()).isEqualTo("Laptop Lenovo");
-            verify(productRepository, never()).saveAndFlush(any());
-        }
-    }
-
     private Product product(Long id, String name, Integer stock) {
-        return withIdAndTimestamps(
-                Product.builder().name(name).stock(stock).branch(branch).build(), id);
-    }
-
-    private static Product withIdAndTimestamps(Product product, Long id) {
+        Product product = Product.builder().name(name).stock(stock).branch(branch).build();
         product.setId(id);
         product.setCreatedAt(LocalDateTime.now());
         product.setUpdatedAt(LocalDateTime.now());

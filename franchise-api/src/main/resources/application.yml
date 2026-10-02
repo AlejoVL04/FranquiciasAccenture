@@ -31,7 +31,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-    baseline-on-migrate: true
+    # Off on purpose: on a schema that already holds objects but no history
+    # table (e.g. procedures created by hand), a baseline would mark V1 as
+    # applied and silently skip creating the franchises table. Failing fast
+    # with Flyway's "non-empty schema" error is the safer outcome.
+    baseline-on-migrate: false
     validate-on-migrate: true
 
   jackson:
