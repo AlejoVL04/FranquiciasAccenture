@@ -178,7 +178,65 @@ Requisitos: JDK 21, Maven 3.9 y un MySQL accesible (por ejemplo, solo el servici
 mvn spring-boot:run
 ```
 
-Variables de entorno soportadas (con sus valores por defecto): `DB_HOST=localhost`, `DB_PORT=3306`, `DB_NAME=franchise_db`, `DB_USERNAME=franchise_user`, `DB_PASSWORD=franchise_password`, `SERVER_PORT=8080`.
+### Variables de entorno
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `DB_HOST` | `localhost` | Host de MySQL |
+| `DB_PORT` | `3306` | Puerto de MySQL |
+| `DB_NAME` | `franchise_db` | Base de datos |
+| `DB_USERNAME` | `franchise_user` | Usuario |
+| `DB_PASSWORD` | `franchise_password` | Contraseña (cambiarla fuera de desarrollo) |
+| `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true` | Opciones de seguridad JDBC; con una base gestionada en la nube usar `sslMode=REQUIRED` |
+| `DB_MAX_LIFETIME_MS` | `1800000` | Vida máxima de una conexión del pool; bajarla si el proxy de la base corta antes |
+| `SERVER_PORT` / `PORT` | `8080` | Puerto HTTP. `PORT` es el que inyectan Render, Railway, Heroku o Cloud Run; `SERVER_PORT` tiene prioridad |
+| `SWAGGER_ENABLED` | `true` | `false` oculta Swagger UI y `/v3/api-docs` |
+
+## Despliegue
+
+La aplicación se distribuye como una imagen Docker sin estado; el único estado es MySQL. Al arrancar, Flyway migra la base, así que desplegar una versión nueva es solo reemplazar el contenedor.
+
+### Integración continua (GitHub Actions)
+
+`.github/workflows/ci.yml` (en la raíz del repositorio):
+
+- En cada push y pull request ejecuta `mvn verify` (pruebas unitarias y de integración con Testcontainers) y construye la imagen.
+- En cada push a `main` publica la imagen en GitHub Container Registry: `ghcr.io/alejovl04/franchise-api:latest` y `:sha-<commit>`. Un tag `vX.Y.Z` publica además `:X.Y.Z`.
+
+El paquete de GHCR se crea privado la primera vez. Para descargarlo sin credenciales, hacerlo público en GitHub → *Packages* → `franchise-api` → *Package settings*; si no, hacer `docker login ghcr.io` en el servidor con un token con permiso `read:packages`.
+
+### Opción A: un servidor con Docker Compose (VM)
+
+Requisitos: una VM con Docker Engine y Compose v2.24 o superior, y los puertos 80/443 (o el de la API) abiertos.
+
+```bash
+git clone https://github.com/AlejoVL04/FranquiciasAccenture.git
+cd FranquiciasAccenture/franchise-api
+cp .env.example .env        # poner contraseñas reales y SWAGGER_ENABLED si aplica
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+`docker-compose.prod.yml` usa la imagen publicada en lugar de compilarla, no expone MySQL en ningún puerto del host y rota los logs. Para actualizar a la última versión se repiten `pull` y `up -d`. Se recomienda poner delante un proxy inverso con TLS (Caddy, Nginx, el balanceador de la nube); la API ya respeta las cabeceras `X-Forwarded-*`.
+
+### Opción B: plataforma de contenedores + MySQL gestionado
+
+Válido para Cloud Run, Azure Container Apps, AWS App Runner/ECS, Render o Railway:
+
+1. Crear una instancia MySQL 8 gestionada y ejecutar una vez [`database/setup.sql`](database/setup.sql) con una contraseña real.
+2. Crear el servicio desde la imagen `ghcr.io/alejovl04/franchise-api:latest` (o desde este repositorio con el `Dockerfile` de `franchise-api/`).
+3. Configurar `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` (como secreto) y `DB_PARAMS=sslMode=REQUIRED`. El puerto lo toma de `PORT` automáticamente.
+4. Health checks: `/actuator/health/liveness` (vida) y `/actuator/health/readiness` (listo para tráfico; incluye la conexión a MySQL).
+
+Memoria recomendada: 512 MB como mínimo; la JVM usa el 75 % del límite del contenedor (`JAVA_TOOL_OPTIONS`).
+
+### Checklist antes de publicar
+
+- [ ] Contraseñas reales en `DB_PASSWORD` y `MYSQL_ROOT_PASSWORD` (y en `setup.sql` si se usa).
+- [ ] MySQL no accesible desde Internet.
+- [ ] TLS delante de la API.
+- [ ] `SWAGGER_ENABLED=false` si la documentación no debe ser pública.
+- [ ] La API no tiene autenticación: cualquiera con la URL puede escribir datos.
 
 ## Ejemplo rápido
 
@@ -239,4 +297,6 @@ src/main/java/com/example/franchiseapi
 └── service/       Interfaces y su implementación
 src/main/resources/db/migration   Migraciones Flyway (tablas y procedimientos)
 database/setup.sql                Creación de la base de datos y el usuario (MySQL propio)
+docker-compose.prod.yml           Overrides de Compose para un servidor de producción
+../.github/workflows/ci.yml       Pruebas y publicación de la imagen en GHCR
 ```

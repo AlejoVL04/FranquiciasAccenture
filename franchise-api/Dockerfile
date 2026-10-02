@@ -35,4 +35,9 @@ EXPOSE 8080
 
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
 
+# Lets plain `docker run` and orchestrators without their own probe detect an
+# unhealthy container. PORT/SERVER_PORT override 8080 on PaaS platforms.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=12 \
+    CMD wget --spider -q "http://127.0.0.1:${SERVER_PORT:-${PORT:-8080}}/actuator/health" || exit 1
+
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

@@ -2,8 +2,13 @@ spring:
   application:
     name: franchise-api
 
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:franchise_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+    # DB_PARAMS holds the connection security options. The default suits the
+    # Compose MySQL (no TLS); managed cloud databases need e.g. sslMode=REQUIRED.
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:franchise_db}?${DB_PARAMS:useSSL=false&allowPublicKeyRetrieval=true}&serverTimezone=UTC&characterEncoding=UTF-8
     username: ${DB_USERNAME:franchise_user}
     password: ${DB_PASSWORD:franchise_password}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -12,6 +17,9 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
+      # Below the idle timeout of managed MySQL servers and proxies, so the pool
+      # never hands out a connection the server has already dropped.
+      max-lifetime: ${DB_MAX_LIFETIME_MS:1800000}
 
   jpa:
     # Flyway owns the schema; Hibernate must never alter it.
@@ -44,15 +52,24 @@ spring:
       write-dates-as-timestamps: false
 
 server:
-  port: ${SERVER_PORT:8080}
+  # PORT is the variable injected by PaaS platforms (Render, Railway, Heroku,
+  # Cloud Run); SERVER_PORT takes precedence when set explicitly.
+  port: ${SERVER_PORT:${PORT:8080}}
+  # Finish in-flight requests before the container stops.
+  shutdown: graceful
+  # Honour X-Forwarded-* from the platform's load balancer / TLS proxy, so
+  # redirects and the Swagger server URL use the public scheme and host.
+  forward-headers-strategy: framework
   error:
     include-message: always
     include-binding-errors: always
 
 springdoc:
   api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
     path: /v3/api-docs
   swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
     path: /swagger-ui.html
     operationsSorter: method
     tagsSorter: alpha
@@ -65,6 +82,15 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+      # /actuator/health/liveness and /actuator/health/readiness for
+      # orchestrators (Kubernetes, ECS, Cloud Run) outside Kubernetes too.
+      probes:
+        enabled: true
+      # Readiness also checks MySQL: an instance that lost the database stops
+      # receiving traffic instead of answering 500s.
+      group:
+        readiness:
+          include: readinessState,db
 
 logging:
   level:

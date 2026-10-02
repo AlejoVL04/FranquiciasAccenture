@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# Production overrides for a single server (VM) running Docker Compose.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from the development setup:
+#   - the API runs the image published by CI (GHCR) instead of building it,
+#   - MySQL is not published on any host port, only on the internal network,
+#   - container logs are rotated so they cannot fill the disk.
+# ---------------------------------------------------------------------------
+services:
+
+  mysql:
+    ports: !reset []
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/alejovl04/franchise-api:latest}
+    pull_policy: always
+    build: !reset null
+    logging: *logging
