@@ -7,7 +7,7 @@ flowchart LR
     U[Cliente] -->|HTTP :80| EC2
     subgraph AWS["AWS · VPC por defecto"]
         EC2["EC2 t3.micro<br/>contenedor franchise-api"]
-        RDS[("RDS MySQL 8.4<br/>db.t4g.micro · privada")]
+        RDS[("RDS MySQL 8.4<br/>db.t3.micro · privada")]
         SSM["SSM Parameter Store<br/>contraseñas (SecureString)"]
         EC2 -->|MySQL :3306 · TLS| RDS
         EC2 -->|al arrancar| SSM
@@ -33,6 +33,25 @@ Terraform solo crea la base vacía; las tablas y los procedimientos los crea Fly
 ```bash
 aws configure          # access key, secret key, región (us-east-1)
 aws sts get-caller-identity   # comprueba las credenciales
+```
+
+Sin access keys, con la sesión de la consola abierta en el navegador (AWS CLI ≥ 2.32):
+
+```bash
+aws login --region us-east-1
+```
+
+El proveedor de Terraform aún no lee esas credenciales directamente; se le pasan con un perfil `credential_process` que las renueva solo durante el `apply`. En Windows, el comando va en un `.cmd` en una ruta sin espacios (`cmd /C` rompe las comillas):
+
+```bat
+:: %USERPROFILE%\.aws\terraform-creds.cmd
+@"C:\Program Files\Amazon\AWSCLIV2\aws.exe" configure export-credentials --profile default --format process
+```
+
+```bash
+aws configure set credential_process 'C:\Users\<usuario>\.aws\terraform-creds.cmd' --profile terraform
+aws configure set region us-east-1 --profile terraform
+export AWS_PROFILE=terraform     # PowerShell: $env:AWS_PROFILE = 'terraform'
 ```
 
 ## Desplegar
@@ -79,7 +98,7 @@ Borra la instancia, la base de datos (sin snapshot final), los secretos, los gru
 
 ## Costos
 
-Los tipos por defecto (`t3.micro`, `db.t4g.micro`, 20 GB) entran en la capa gratuita de AWS o en los créditos iniciales de una cuenta nueva. Fuera de ella el entorno cuesta del orden de 25 USD al mes, así que conviene ejecutar `terraform destroy` cuando ya no se necesite.
+Los tipos por defecto (`t3.micro`, `db.t3.micro`, 20 GB) entran en la capa gratuita de AWS o en los créditos iniciales de una cuenta nueva. Fuera de ella el entorno cuesta del orden de 25 USD al mes, así que conviene ejecutar `terraform destroy` cuando ya no se necesite.
 
 ## Seguridad y límites conscientes
 

@@ -39,9 +39,9 @@ variable "swagger_enabled" {
 # --- Database ---------------------------------------------------------------
 
 variable "db_instance_class" {
-  description = "RDS instance class. db.t4g.micro is Free Tier eligible."
+  description = "RDS instance class. db.t3.micro is Free Tier eligible."
   type        = string
-  default     = "db.t4g.micro"
+  default     = "db.t3.micro"
 }
 
 variable "db_engine_version" {

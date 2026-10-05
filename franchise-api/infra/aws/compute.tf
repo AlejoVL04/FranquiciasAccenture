@@ -1,8 +1,21 @@
 # One EC2 instance running the API container published to GHCR. It is managed
 # through SSM Session Manager / Run Command, so no SSH key or port 22 is needed.
 
-data "aws_ssm_parameter" "al2023_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+# Latest Amazon Linux 2023 AMI, looked up through EC2 rather than the public SSM
+# parameter, which brand-new accounts may not see yet.
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-kernel-6.1-x86_64"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
 }
 
 data "aws_iam_policy_document" "ec2_assume" {
@@ -48,7 +61,7 @@ resource "aws_iam_instance_profile" "api" {
 }
 
 resource "aws_instance" "api" {
-  ami                    = data.aws_ssm_parameter.al2023_ami.value
+  ami                    = data.aws_ami.al2023.id
   instance_type          = var.instance_type
   subnet_id              = sort(data.aws_subnets.api.ids)[0]
   vpc_security_group_ids = [aws_security_group.api.id]
@@ -82,7 +95,7 @@ resource "aws_instance" "api" {
   }), "\r\n", "\n")
   user_data_replace_on_change = true
 
-  # The AMI parameter moves with every Amazon Linux release; replacing the
+  # The latest AMI moves with every Amazon Linux release; replacing the
   # instance for that alone would be an unplanned outage.
   lifecycle {
     ignore_changes = [ami]
